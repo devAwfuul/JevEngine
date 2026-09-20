@@ -15,11 +15,12 @@ public final class TriggerbotConfig {
                             int minimumFrames, int maxConcurrentChecks) {
     }
 
-    private static final List<Map<String, String>> DEFAULT_CRITERIA = List.of(
-            Map.of("range", "0-24", "meaning", "The sample is consistent with ordinary play."),
-            Map.of("range", "25-49", "meaning", "There are weak or mixed automation signals."),
-            Map.of("range", "50-74", "meaning", "The sample contains several suspicious patterns."),
-            Map.of("range", "75-100", "meaning", "The sample strongly supports automated aiming or clicking."));
+    private static final List<String> DEFAULT_CRITERIA = List.of(
+            "Normal. The sample is consistent with ordinary play.",
+            "Weak or mixed. There are some automation-like signals, but nothing conclusive.",
+            "Suspicious. The sample contains several repeated automation-like patterns.",
+            "Strong. The sample strongly supports automated aiming or clicking.",
+            "Extreme. The sample is exceptionally consistent with automation after ping is considered.");
 
     private final Sampling sampling;
     private final String questionId;
@@ -43,9 +44,9 @@ public final class TriggerbotConfig {
         int interval = boundedInt(file, "sampling.interval-ticks", 2, 1, 20, warnings);
         double radius = boundedDouble(file, "sampling.opponent-radius", 12.0D,
                 2.0D, 32.0D, warnings);
-        int maxOpponents = boundedInt(file, "sampling.max-opponents", 4, 0, 16, warnings);
-        int maxFrames = boundedInt(file, "sampling.max-frames", 80, 10, 400, warnings);
-        int maxAttacks = boundedInt(file, "sampling.max-attacks", 128, 1, 512, warnings);
+        int maxOpponents = boundedInt(file, "sampling.max-opponents", 2, 0, 16, warnings);
+        int maxFrames = boundedInt(file, "sampling.max-frames", 60, 10, 400, warnings);
+        int maxAttacks = boundedInt(file, "sampling.max-attacks", 64, 1, 512, warnings);
         int minimumFrames = boundedInt(file, "sampling.minimum-frames", 10, 1, maxFrames,
                 warnings);
         int maxConcurrent = boundedInt(file, "sampling.max-concurrent-checks", 4, 1, 32,
@@ -66,10 +67,7 @@ public final class TriggerbotConfig {
                     + "lead rather than proof.";
             warnings.add("question.instructions is blank, using the built-in instructions");
         }
-        Object criteria = file.get("question.criteria");
-        if (criteria == null) {
-            criteria = DEFAULT_CRITERIA;
-        }
+        List<String> criteria = criteriaStrings(file.get("question.criteria"), warnings);
         String type = file.getString("question.type", "score");
         if (!"score".equalsIgnoreCase(type)) {
             warnings.add("question.type must be score, using score");
@@ -84,6 +82,34 @@ public final class TriggerbotConfig {
                 new Sampling(duration, interval, radius, maxOpponents, maxFrames, maxAttacks,
                         minimumFrames, maxConcurrent),
                 questionId, question, threshold, warnings);
+    }
+
+    /** Score criteria are ordered strings in the Jev schema, even when YAML uses maps. */
+    private static List<String> criteriaStrings(Object raw, List<String> warnings) {
+        if (!(raw instanceof List<?> values) || values.isEmpty()) {
+            if (raw != null) {
+                warnings.add("question.criteria must be a non-empty list, using the built-in rubric");
+            }
+            return DEFAULT_CRITERIA;
+        }
+        List<String> criteria = new ArrayList<>();
+        for (Object value : values) {
+            if (value instanceof Map<?, ?> map) {
+                Object range = map.get("range");
+                Object meaning = map.get("meaning");
+                String text = range == null
+                        ? String.valueOf(meaning)
+                        : "Range " + range + ": " + String.valueOf(meaning);
+                criteria.add(text);
+            } else if (value != null && !String.valueOf(value).isBlank()) {
+                criteria.add(String.valueOf(value));
+            }
+        }
+        if (criteria.size() < 2) {
+            warnings.add("question.criteria needs at least two levels, using the built-in rubric");
+            return DEFAULT_CRITERIA;
+        }
+        return List.copyOf(criteria);
     }
 
     private static int boundedInt(FileConfiguration file, String path, int fallback,
@@ -123,6 +149,10 @@ public final class TriggerbotConfig {
 
     public double reportThreshold() {
         return reportThreshold;
+    }
+
+    public int scoreLevels() {
+        return ((List<?>) question.criteria()).size();
     }
 
     public List<String> warnings() {

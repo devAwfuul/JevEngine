@@ -291,11 +291,13 @@ public final class TriggerbotModule implements JevModule, Listener {
                     "Jev returned no triggerbot score for " + session.playerName + "."));
             return;
         }
-        boolean concerning = score.score() >= config.reportThreshold();
+        double percentage = Math.max(0.0D, Math.min(100.0D,
+                score.score() / Math.max(1.0D, config.scoreLevels() - 1.0D) * 100.0D));
+        boolean concerning = percentage >= config.reportThreshold();
         Component line = Component.text()
                 .append(Component.text("Triggerbot assessment for " + session.playerName + ": ",
                         NamedTextColor.WHITE))
-                .append(Component.text(Math.round(score.score()) + "/100",
+                .append(Component.text(Math.round(percentage) + "/100",
                         concerning ? NamedTextColor.RED : NamedTextColor.GREEN))
                 .append(Component.text(" (" + Math.round(score.confidence() * 100.0D)
                         + "% confidence)", Branding.MUTED))

@@ -20,23 +20,22 @@ question:
   id: triggerbot_score
   type: score
   instructions: >-
-    Rate from 0 to 100 how strongly this five second Minecraft combat sample
-    supports a triggerbot or other automated attack pattern. Account for the
-    player's ping in every timing judgment, and consider movement, target
-    movement, aim changes, attack intervals, health, velocity, view angle and
-    target switching together. A skilled player, low ping, high click rate or
-    a single close hit is not evidence of automation. Look for repeated timing
-    regularity, implausible reaction timing after ping is accounted for,
-    unnatural rotation changes and attacks that consistently occur without
-    human variation. A high score is an investigation lead, not proof.
+    Rate this five second Minecraft combat sample across the ordered levels
+    from ordinary play to exceptional evidence of a triggerbot or other
+    automated attack pattern. Account for the player's ping in every timing
+    judgment, and consider movement, target movement, aim changes, attack
+    intervals, health, velocity, view angle and target switching together. A
+    skilled player, low ping, high click rate or a single close hit is not
+    evidence of automation. Look for repeated timing regularity, implausible
+    reaction timing after ping is accounted for, unnatural rotation changes and
+    attacks that consistently occur without human variation. The plugin maps
+    the selected level to a 0 to 100 display score. A high score is an
+    investigation lead, not proof.
   criteria:
-    - range: '0-24'
-      meaning: 'The sample is consistent with ordinary play.'
-    - range: '25-49'
-      meaning: 'There are weak or mixed automation signals.'
-    - range: '50-74'
-      meaning: 'The sample contains several suspicious patterns.'
-    - range: '75-100'
-      meaning: 'The sample strongly supports automated aiming or clicking.'
+    - 'Normal. The sample is consistent with ordinary play.'
+    - 'Weak or mixed. There are some automation-like signals, but nothing conclusive.'
+    - 'Suspicious. The sample contains several repeated automation-like patterns.'
+    - 'Strong. The sample strongly supports automated aiming or clicking.'
+    - 'Extreme. The sample is exceptionally consistent with automation after ping is considered.'
 
 report-threshold: 70.0
