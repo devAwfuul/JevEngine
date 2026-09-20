@@ -36,7 +36,6 @@ api:
 # settings for modules that are already running.
 modules:
   chatfilter: true
-  triggerbot: true
 
 # Shared by every module, so the plugin speaks with one voice.
 messages:

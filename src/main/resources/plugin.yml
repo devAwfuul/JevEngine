@@ -10,7 +10,7 @@ website: jumpreset.net
 commands:
   jevengine:
     description: Manage JevEngine and its modules.
-    usage: /jevengine <status|modules|reload|module|triggerbot>
+    usage: /jevengine <status|modules|reload|module>
     aliases: [ je, jev ]
 
 permissions:
@@ -26,6 +26,3 @@ permissions:
   jevengine.chatfilter.bypass:
     description: Skip chat moderation entirely.
     default: false
-  jevengine.triggerbot.check:
-    description: Run a triggerbot sample against an online player.
-    default: op

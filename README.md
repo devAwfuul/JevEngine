@@ -8,14 +8,12 @@ module shares, and the branding they all speak in. Features live in modules.
 | Module | What it does |
 | --- | --- |
 | `chatfilter` | Holds each message, judges it with Jev, and releases it |
-| `triggerbot` | Captures a five-second combat sample and asks Jev about automation |
 
 ## Layout
 
 ```
 config.yml        API key, request budget, which modules are on, branding
 chatfilter.yml    everything the chat filter does
-triggerbot.yml    sampling limits and the triggerbot question
 ```
 
 ```
@@ -24,7 +22,6 @@ api/                the Jev client, shared by every module
 text/               deobfuscation and address scanning, usable by any module
 ui/                 branding
 modules/chatfilter/ the filter
-modules/triggerbot/ combat sampling and triggerbot assessment
 ```
 
 ## Setup
@@ -50,19 +47,12 @@ else is a module's name and the rest of the line goes straight to it.
 | `/je reload [module]` | Re-read config.yml and every module, or just one |
 | `/je verbose` | Watch the filter's decisions as they happen |
 | `/je test <message>` | Judge a line without sending it or punishing anyone |
-| `/je module triggerbot check <player>` | Capture five seconds of combat data and ask Jev for a triggerbot assessment |
 
 `verbose` and `test` are words the chat filter asked to answer to, so they work
 without naming it. `/je chatfilter verbose` is the same thing.
 
 Permissions: `jevengine.admin`, `jevengine.chatfilter.verbose`,
-`jevengine.chatfilter.notify`, `jevengine.chatfilter.bypass`,
-`jevengine.triggerbot.check`.
-
-The triggerbot module records rotations, positions, velocity, health, attacks,
-nearby opponents and observed ping only while a staff check is running. Jev is
-explicitly told to account for ping, and the result is an investigation lead,
-not an automatic punishment. Its shorter form is `/je triggerbot check <player>`.
+`jevengine.chatfilter.notify`, `jevengine.chatfilter.bypass`.
 
 ## Adding a module
 

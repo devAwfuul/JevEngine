@@ -42,8 +42,7 @@ public final class JevEngineCommand implements CommandExecutor, TabCompleter {
         Branding branding = plugin.branding();
 
         if (!sender.hasPermission("jevengine.admin")
-                && !sender.hasPermission("jevengine.chatfilter.verbose")
-                && !sender.hasPermission("jevengine.triggerbot.check")) {
+                && !sender.hasPermission("jevengine.chatfilter.verbose")) {
             sender.sendMessage(branding.line(
                     plugin.core().line("no-permission", "You do not have permission to do that."),
                     Map.of()));

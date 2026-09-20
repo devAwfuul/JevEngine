@@ -6,7 +6,6 @@ import dev.awfuul.jevengine.core.CoreConfig;
 import dev.awfuul.jevengine.core.ModuleContext;
 import dev.awfuul.jevengine.core.ModuleManager;
 import dev.awfuul.jevengine.modules.chatfilter.ChatFilterModule;
-import dev.awfuul.jevengine.modules.triggerbot.TriggerbotModule;
 import dev.awfuul.jevengine.ui.Branding;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -71,7 +70,6 @@ public final class JevEnginePlugin extends JavaPlugin {
     /** Every module the jar knows about. Being here does not turn one on. */
     private void registerModules() {
         modules.register(new ChatFilterModule());
-        modules.register(new TriggerbotModule());
     }
 
     private ModuleContext context() {
