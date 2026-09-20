@@ -1,0 +1,9 @@
+plugins {
+    // Lets Gradle download a matching JDK toolchain automatically when the
+    // one requested in build.gradle (Java 21) is not already installed
+    // somewhere it can find. Without this, the toolchain block only works
+    // when a JDK 21+ happens to already be present on the machine.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'JevEngine'

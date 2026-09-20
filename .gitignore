@@ -1,0 +1,7 @@
+.gradle/
+build/
+run/
+.idea/
+benchmark-results/
+src/test/java/dev/awfuul/jevengine/bench/datasets/chat-dataset.csv
+*.iml

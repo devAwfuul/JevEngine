@@ -1,0 +1,31 @@
+name: JevEngine
+version: '${version}'
+main: dev.awfuul.jevengine.JevEnginePlugin
+api-version: '1.21'
+load: STARTUP
+authors: [ awfuul ]
+description: A modular server engine powered by Jev.
+website: jumpreset.net
+
+commands:
+  jevengine:
+    description: Manage JevEngine and its modules.
+    usage: /jevengine <status|modules|reload|module|triggerbot>
+    aliases: [ je, jev ]
+
+permissions:
+  jevengine.admin:
+    description: Reload config files and read engine status.
+    default: op
+  jevengine.chatfilter.verbose:
+    description: Watch the chat filter's decisions as they happen.
+    default: op
+  jevengine.chatfilter.notify:
+    description: Receive staff alerts for flagged and blocked messages.
+    default: op
+  jevengine.chatfilter.bypass:
+    description: Skip chat moderation entirely.
+    default: false
+  jevengine.triggerbot.check:
+    description: Run a triggerbot sample against an online player.
+    default: op

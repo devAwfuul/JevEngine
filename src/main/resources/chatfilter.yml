@@ -1,0 +1,619 @@
+# Chat filter
+#
+# Every chat message is held for a moment, judged by Jev, and then released.
+# Jev answers typed questions about the message. This file owns the questions,
+# the thresholds, and what happens at each one. The module owns nothing else.
+#
+# The API key, the model and the request budget are shared by the whole engine
+# and live in config.yml.
+#
+# Run /jevengine verbose to watch the decisions as they happen, and
+# /jevengine test <message> to try a line without anyone seeing it.
+# Run /jevengine reload chatfilter after editing.
+
+chat:
+  enabled: true
+
+  # Where in the event chain the filter listens. HIGHEST means other chat plugins
+  # have already set their format, so held messages come back looking normal.
+  event-priority: HIGHEST
+
+  # Hold the message until Jev answers, then deliver it. With this off, messages
+  # are delivered immediately and moderation happens after the fact, which is
+  # faster but lets a bad message land in front of everyone first.
+  hold-messages: true
+
+  # Show the sender their own message straight away, and hold it only from
+  # everyone else until the verdict lands.
+  #
+  # Chat stops feeling laggy for the person typing, which is the only place the
+  # delay is really noticeable, and nothing that breaks a rule ever reaches the
+  # room. The trade is that a sender briefly sees a message that is not going
+  # anywhere, so messages.blocked-low-latency has to say so plainly.
+  #
+  # Turn this off if you would rather nobody saw a blocked message at all, at
+  # the cost of the sender waiting for their own line to appear.
+  low-latency: true
+
+  # What to do when the API is unreachable or times out. true delivers the
+  # message, false drops it. Delivering is the better default: an outage should
+  # not silence a server full of people who did nothing wrong.
+  fail-open: true
+
+  # Messages shorter than this skip Jev. Keep it at 1 or 2. Setting it higher
+  # is an easy bypass.
+  min-length: 2
+
+  # Repeat messages reuse the previous verdict instead of asking again. Keyed on
+  # the normalised text, so 'GG' and 'g g' share an entry.
+  cache:
+    enabled: true
+    size: 4096
+    ttl-seconds: 600
+
+  # Lines of preceding chat sent with the message. Context is how Jev tells
+  # friends insulting each other apart from someone being hounded. Costs a few
+  # tokens per message. Set to 0 to send the message alone.
+  context-lines: 4
+
+# Jev reads characters literally, so the plugin undoes disguises in code first
+# and hands Jev the original text plus the cleaned-up versions. Jev is told the
+# cleaned versions are lossy and never judges them on their own.
+deobfuscation:
+  enabled: true
+  strip-invisible: true      # zero-width joiners, soft hyphens, direction marks
+  strip-marks: true          # stacked diacritics and zalgo
+  fold-confusables: true     # Cyrillic a, Greek o, fullwidth a, circled a
+  expand-leet: true          # n1gg3r, ph4g, @ss
+  join-spaced-letters: true  # 'f u c k' and 'f.u.c.k'
+  collapse-repeats: true     # 'niiiiice' to 'niice'
+  max-length: 256
+
+# Some things are not visible in a single message. A slur can be typed one piece
+# at a time, an address can be broken up with spaces, and spam is a property of a
+# sequence rather than a line. The plugin measures all of that in code and hands
+# Jev the result, because counting and comparing are exact operations that code
+# does perfectly and a model does badly.
+detection:
+  # How many recent messages to keep per player. Cleared when they log out.
+  memory: 12
+
+  split:
+    # Joins consecutive short messages and asks whether they spell something the
+    # separate messages did not. "ni" "gg" "er" is the case this exists for.
+    enabled: true
+    question: split_bypass
+
+    # Only messages sent within this many seconds of each other are joined.
+    window-seconds: 20
+
+    # The run stops at the first message longer than this, which is what keeps
+    # ordinary conversation from being glued into nonsense. Lowering it saves
+    # tokens and misses longer fragments.
+    max-fragment-length: 8
+    max-fragments: 6
+
+    # Joined text shorter than this is not worth asking about.
+    min-joined-length: 5
+
+  advertising:
+    # Pulls anything address-shaped out of the message and passes the candidates
+    # to the advertising question: IPs, domains, Discord invites, and the usual
+    # disguises like 'play dot example dot net' or 'play(.)example(.)net'.
+    # The pattern is loose on purpose, so version numbers and coordinates turn up
+    # too and Jev dismisses them.
+    scan-addresses: true
+
+    # An address ending in an unusual domain is only picked up when it also has a
+    # port or a path, which is what keeps "that was close.Nice one" out of the
+    # results. Add domains here if servers in your corner of the hobby use one
+    # the built-in list misses.
+    extra-tlds: []
+
+  spam:
+    # The window the message counts are measured over.
+    rate-window-seconds: 15
+
+# Background sent with every message, before the questions. This is where you
+# describe your server. A question inherits its sense of what is normal from
+# here, so a roleplay server and a competitive PvP server want different words.
+state:
+  server-context: >-
+    Public Minecraft server chat. Players get in arguements constantly, insult
+    each other's skills in 1v1s, and threaten each other inside the game. All
+    of that is normal here and none of it is a problem. What matters is a player
+    attacking who someone is, threatening them outside the game, sexualising
+    them, racist slurs, sexual content, gross content and harmful toxicity.
+  include-sender-name: true
+
+  # Send how long ago the player first joined. It is the strongest non-verbal
+  # scam signal there is, since the same offer reads very differently from a
+  # regular and from an account that arrived ten minutes ago. The question is
+  # told to treat it as context, because being new is not an offence.
+  include-player-tenure: true
+
+# ---------------------------------------------------------------------------
+# Questions
+#
+# These are sent to Jev with every message. Edit the wording freely; the ids on
+# the left are what the policy section below refers to, so keep those in sync.
+#
+# type: noul   asks whether something is true and returns a probability 0-1
+# type: score  rates a message against ordered levels and returns a position
+# type: choice picks one option and returns probabilities for all of them
+#
+# State fields you can refer to: `message.raw`, `message.deobfuscated`,
+# `message.letters_only`, `message.signals`, `message.addresses`, `sender.name`,
+# `sender.first_seen_days_ago`, `recent_chat`, `rate`, `player_recent_messages`.
+# ---------------------------------------------------------------------------
+
+questions:
+
+  # The veto. When this is high, the filter will not punish, no matter what else
+  # fires. It exists so that ordinary angry gamers never get banned for being
+  # ordinary angry gamers.
+  casual_only:
+    type: noul
+    instructions: >-
+      Is the worst thing in this message ordinary swearing, rudeness, trash talk,
+      or frustration of the kind a casual gaming server tolerates? Judge
+      `message.raw` in the context of `recent_chat`.
+    criteria:
+      'true': >-
+        The message is at most crude, rude, or annoying. Swearing, insults with
+        no group target, complaining, arguing, in-game trash talk, and
+        exaggerated in-game threats all belong here.
+      'false': >-
+        The message goes past that into a slur, hate speech, a real-world threat,
+        sexual content aimed at someone, or a sustained personal attack.
+
+  slur:
+    type: noul
+    instructions: >-
+      Does this message use a slur against race, ethnicity, religion, nationality,
+      sexual orientation, gender identity, or disability? Read `message.raw` first.
+      Use `message.deobfuscated` and `message.letters_only` only to see through
+      deliberately disguised spelling; both are lossy and neither is evidence on
+      its own.
+    criteria:
+      'true': >-
+        A slur aimed at one of those groups is present, spelled plainly or
+        disguised with symbols, spacing, or lookalike characters.
+      'false': >-
+        No such slur. General profanity such as fuck, shit, bitch, bastard, or
+        cunt is not a slur. Neither is an ordinary word that merely contains a
+        slur as a substring, a place name or surname that resembles one, someone
+        quoting a slur to report or object to it, or a reclaimed word used by an
+        in-group without malice.
+
+  hate_speech:
+    type: noul
+    instructions: >-
+      Does this message attack, dehumanise, or call for harm against people
+      because of race, ethnicity, religion, nationality, sexual orientation,
+      gender identity, or disability?
+    criteria:
+      'true': >-
+        It expresses hatred for such a group, treats them as less than human,
+        praises violence done to them, or calls for them to be harmed or excluded.
+      'false': >-
+        It does not. Disagreement about politics, religion, or countries is not
+        hate speech unless it turns on the people themselves.
+
+  targeted_harassment:
+    type: noul
+    instructions: >-
+      Is this message part of a sustained personal attack on one specific person,
+      meant to wear them down rather than to argue or joke? Weigh `recent_chat`
+      heavily, since a single sharp line usually is not harassment.
+    criteria:
+      'true': >-
+        One person is being repeatedly degraded, mocked, or pursued after clearly
+        wanting it to stop, or the message attacks something personal about them
+        such as their appearance, their family, or a hardship.
+      'false': >-
+        It is a one-off insult, an argument, mutual trash talk between players
+        who are both doing it, or banter between friends.
+
+  threat:
+    type: noul
+    instructions: >-
+      Does this message threaten harm outside the game? In-game violence does not
+      count, and neither does normal PvP talk.
+    criteria:
+      'true': >-
+        It threatens real-world violence, shows intent to find someone's address
+        or identity, threatens to leak personal information, or threatens to
+        attack their accounts or devices.
+      'false': >-
+        Everything that stays inside Minecraft. 'I will kill you at spawn',
+        'I am going to raid your base', 'camp you all night', and similar lines
+        are false.
+
+  sexual_harassment:
+    type: noul
+    instructions: >-
+      Does this message direct sexual content at a specific person who has not
+      invited it?
+    criteria:
+      'true': >-
+        It makes an unwanted sexual advance, describes a sexual act involving
+        someone in the chat, or sexually demeans a named person.
+      'false': >-
+        Crude jokes with no target, innuendo between consenting friends, and
+        swearing that merely uses sexual words are all false.
+
+  minor_sexual_content:
+    type: noul
+    instructions: >-
+      Does this message sexualise a child, or attempt to move a child toward
+      sexual contact, including asking a self-identified minor for photos, their
+      age, or a private channel in a sexual context?
+    criteria:
+      'true': >-
+        It sexualises someone described or presented as a minor, or it is an
+        adult steering a minor toward sexual contact.
+      'false': >-
+        It does not. Ordinary talk about school or age, an adult asking another
+        adult's age, and crude jokes between peers are false.
+
+  self_harm_encouragement:
+    type: noul
+    instructions: >-
+      Does this message tell someone to kill or hurt themselves, or encourage
+      them to?
+    criteria:
+      'true': >-
+        It tells a person to end their life or injure themselves, including short
+        forms such as kys, or mocks them for having tried.
+      'false': >-
+        It does not. Someone describing their own distress is false here and
+        should be treated as a welfare concern, not a violation.
+
+  evasion:
+    type: noul
+    instructions: >-
+      Compare `message.raw` with `message.deobfuscated` and the counts in
+      `message.signals`. Was the spelling disguised on purpose to get something
+      past a chat filter?
+    criteria:
+      'true': >-
+        Characters were swapped, spaced, or padded specifically so a banned word
+        would not match, and the word underneath is one a server would block.
+      'false': >-
+        The text is spelled normally, or the oddities are ordinary internet
+        writing: leetspeak in a username, stretched letters for emphasis, kaomoji,
+        a non-English keyboard, or typing quickly. Disguised spelling around a
+        word that is merely rude is also false.
+
+  # Only sent when consecutive short messages actually produced something to
+  # join, so an ordinary sentence never pays for it.
+  split_bypass:
+    type: noul
+    instructions: >-
+      `player_recent_messages.fragments` are the last few short messages this
+      player sent, oldest first, with the message being judged last.
+      `player_recent_messages.joined` is them run together with nothing between.
+      Does the joined text spell out a slur or another word a server would block,
+      which none of the messages says on its own?
+    criteria:
+      'true': >-
+        Run together, the fragments spell a slur or another blocked word, and
+        breaking it up that way looks like a way to say it one piece at a time.
+      'false': >-
+        The joined text does not spell anything blocked. Short messages are
+        normal in chat and running them together will often produce something
+        that resembles a word by accident, which is not evidence of anything.
+        Also false when the joined text is only ordinary profanity, and false
+        when the fragments are separate real words that happen to sit together.
+
+  advertising:
+    type: noul
+    instructions: >-
+      Is this message promoting another Minecraft server, Discord, shop or
+      service to draw players away from this one? `message.addresses` lists
+      anything in the message that a pattern thought looked like an address.
+    criteria:
+      'true': >-
+        It gives an address, invite code or name for somewhere else to play, or
+        asks people to leave and join something else. Breaking an address up with
+        spaces, brackets or the word dot to get past a filter counts.
+      'false': >-
+        Everything else. Sharing a video, image or news link, naming a well known
+        website, talking about this server's own address, linking a mod or plugin
+        page, asking a question about another server without promoting it, a
+        version number such as 1.21.11, and coordinates are all false. An entry
+        in `message.addresses` is a pattern match, not evidence on its own.
+
+  scam:
+    type: noul
+    instructions: >-
+      Is this message trying to trick another player out of items, money or
+      account access? `message.addresses` lists anything address-shaped the
+      plugin found. `sender.first_seen_days_ago`, where present, is how long ago
+      the sender first joined; treat it as context, not as evidence.
+    criteria:
+      'true': >-
+        It asks someone to hand over items, ranks or money first on a promise of
+        getting more back, offers to double or upgrade whatever is sent, claims
+        to be staff in order to ask for a password or account details, points at
+        a site that will ask them to log in or pay for something this server does
+        not sell, dangles free ranks, crates or currency behind a link or a
+        private message, or offers to buy or sell an account.
+      'false': >-
+        Ordinary trading and asking for help. Naming a price, agreeing a swap,
+        asking someone to send first without promising anything extra, begging
+        for items, a giveaway the server itself is running, and a player warning
+        other people about a scammer are all false. A one-sided or simply bad
+        trade is not a scam, and a new player is not doing anything wrong by
+        being new.
+
+  spam:
+    type: noul
+    instructions: >-
+      Is this player flooding chat? `rate` holds counts the plugin measured.
+      Treat them as facts and do not recount anything yourself.
+    criteria:
+      'true': >-
+        The same or nearly the same message is being repeated, or messages are
+        arriving fast enough and saying little enough that they are drowning out
+        the conversation, or the message is a long run of characters with no
+        meaning.
+      'false': >-
+        Normal conversation. Several quick short replies, excitement, repeating a
+        question once because nobody answered, one line in capitals, and a long
+        message that actually says something are all false.
+
+  severity:
+    type: score
+    instructions: >-
+      How much harm does this message do to the people who read it?
+    criteria:
+      - 'None. Ordinary chat, including swearing and trash talk.'
+      - 'Mild. Rude or hostile enough to sour the room, but nothing more.'
+      - 'Serious. A slur, hate speech, or a personal attack that would drive someone off the server.'
+      - 'Severe. A real-world threat, sexual content aimed at a person, or telling someone to kill themselves.'
+      - 'Extreme. Sexual content involving a child, or a credible threat of serious violence.'
+
+  category:
+    type: choice
+    instructions: >-
+      Which single rule does this message break most clearly? Take
+      `player_recent_messages` and `rate` into account where they are present,
+      since a message can be one piece of something spelled out across several,
+      or one line of a flood. Pick none unless one of the others plainly applies.
+    criteria:
+      none: 'Nothing here breaks a rule, or it is only swearing and rudeness.'
+      slur: 'A slur against a protected group.'
+      hate_speech: 'Hatred or calls for harm against a protected group.'
+      targeted_harassment: 'A sustained personal attack on one person.'
+      threat: 'A threat of harm outside the game.'
+      sexual_harassment: 'Sexual content aimed at a specific person.'
+      minor_sexual_content: 'Sexual content involving a child.'
+      self_harm_encouragement: 'Telling someone to kill or hurt themselves.'
+      split_bypass: 'A blocked word spelled out one piece at a time across several messages.'
+      scam: 'Trying to trick a player out of items, money or account access.'
+      advertising: 'Promoting another server, Discord or service.'
+      spam: 'Flooding chat with repeated or meaningless messages.'
+
+  # Only sent when punishments.duration.enabled is true. The options are the
+  # policy: Jev picks a tier, the plugin turns that tier into a length. It never
+  # invents a duration, which is what keeps two similar messages landing on the
+  # same punishment.
+  duration_tier:
+    type: choice
+    instructions: >-
+      Assume this message breaks a rule. Which tier of punishment fits it? Judge
+      only what is in this message and `recent_chat`. You cannot see the player's
+      history, so do not assume they are a repeat offender.
+    criteria:
+      warn: 'Borderline. A first slip, a word used carelessly, or something better answered with a warning.'
+      short: 'A clear but isolated violation. One slur, one nasty line, then nothing.'
+      medium: 'Deliberate. The player disguised the spelling, spelled it out across several messages, repeated it, or kept going after being told to stop.'
+      long: 'Hostile and sustained. Hate speech, a campaign against one player, or a real-world threat.'
+      permanent: 'No place on the server. Sexual content involving a child, or a credible threat of serious violence.'
+
+# ---------------------------------------------------------------------------
+# Policy
+#
+# Jev returns numbers. This section turns them into actions. Nothing here calls
+# the API, so you can retune it as often as you like.
+#
+# Actions, weakest to strongest:
+#   PASS    deliver the message
+#   FLAG    deliver it, tell staff
+#   BLOCK   do not deliver it, tell the sender and staff
+#   PUNISH  block it and run the configured command
+# ---------------------------------------------------------------------------
+
+policy:
+
+  # Checked in this order. The first hazard to reach its action threshold wins,
+  # so the worst things are listed first.
+  #
+  # Two gates below are about how a player is treating someone: the swearing veto
+  # and the harm floor. Both are right for toxicity and wrong for everything else,
+  # because an advert, a flood and a slur typed one letter at a time are all
+  # perfectly polite. Those three switch the gates off, and the tighter action
+  # thresholds are what stands in for them.
+  hazards:
+    - id: minor_sexual_content
+      review: 0.25
+      action: 0.50
+      on-action: PUNISH
+    - id: threat
+      review: 0.45
+      action: 0.72
+      on-action: PUNISH
+    - id: self_harm_encouragement
+      review: 0.45
+      action: 0.72
+      on-action: PUNISH
+    - id: split_bypass
+      review: 0.45
+      action: 0.75
+      on-action: PUNISH
+      # The message being judged is the last fragment. On its own it is harmless
+      # and scores no harm at all, so both of these would veto every detection.
+      apply-casual-guard: false
+      apply-severity-floor: false
+    - id: slur
+      review: 0.45
+      action: 0.68
+      on-action: PUNISH
+    - id: hate_speech
+      review: 0.45
+      action: 0.68
+      on-action: PUNISH
+    - id: sexual_harassment
+      review: 0.45
+      action: 0.68
+      on-action: PUNISH
+    - id: scam
+      review: 0.48
+      action: 0.75
+      on-action: PUNISH
+      # A scam is friendly by design and does no harm to whoever reads it. Both
+      # of these gates measure the wrong thing here, so the threshold above and
+      # the category cross-check are what carry it.
+      apply-casual-guard: false
+      apply-severity-floor: false
+    - id: advertising
+      review: 0.48
+      action: 0.75
+      on-action: PUNISH
+      apply-casual-guard: false
+      apply-severity-floor: false
+    - id: targeted_harassment
+      review: 0.50
+      action: 0.78
+      on-action: BLOCK
+    - id: spam
+      review: 0.55
+      action: 0.78
+      # Blocks the message rather than punishing. Someone excited about a build
+      # and someone flooding look similar for the first few messages, and getting
+      # this wrong should cost a player one message, not a mute.
+      on-action: BLOCK
+      apply-casual-guard: false
+      apply-severity-floor: false
+
+  # The veto described above. If casual_only is at least this high, the strongest
+  # action available is FLAG, unless a hazard is above override-at. Raising
+  # threshold or lowering override-at both make false positives less likely and
+  # misses more likely.
+  guard:
+    question: casual_only
+    threshold: 0.70
+    override-at: 0.88
+
+  # A punishment additionally needs the severity score to reach this, and Jev to
+  # be reasonably sure of that score. Below either, the action drops to BLOCK.
+  severity:
+    question: severity
+    min-for-punish: 1.6
+    min-confidence: 0.45
+
+  # Applies to the category and duration choices. Below this, the filter falls back
+  # rather than guessing which rule was broken or how long to punish for.
+  confidence:
+    min-for-punish: 0.60
+
+  # Deliberate evasion is an aggravating signal, not a violation by itself. Above
+  # this it lowers the bar for the hazard that fired, by the amount below.
+  evasion:
+    question: evasion
+    threshold: 0.70
+    lowers-action-threshold-by: 0.08
+
+# A FLAG is delivered but recorded. When the same player reaches the threshold
+# for one category inside the window, that flag becomes a punishment. The count
+# resets after a punishment, so a long burst does not run a command for every
+# following message.
+violations:
+  enabled: true
+  default-threshold: 3
+  window-seconds: 300
+  thresholds:
+    spam: 3
+
+punishments:
+  # Off until you have watched /jevengine verbose for a while and you are happy
+  # with the decisions. The filter still blocks and flags with this off.
+  enabled: false
+
+  # Run as console, on the main thread. Placeholders: %player% %uuid%
+  # %duration% %reason% %category% %severity%
+  commands:
+    slur: 'tempban %player% %duration% "%reason%"'
+    hate_speech: 'tempban %player% %duration% "%reason%"'
+    threat: 'tempban %player% %duration% "%reason%"'
+    sexual_harassment: 'tempban %player% %duration% "%reason%"'
+    minor_sexual_content: 'ban %player% "%reason%"'
+    self_harm_encouragement: 'tempban %player% %duration% "%reason%"'
+    targeted_harassment: 'mute %player% %duration% "%reason%"'
+    split_bypass: 'tempban %player% %duration% "%reason%"'
+    scam: 'tempban %player% %duration% "%reason%"'
+    advertising: 'tempban %player% %duration% "%reason%"'
+    spam: 'mute %player% %duration% "%reason%"'
+    # Used when the category choice is not confident enough to pick one.
+    default: 'mute %player% %duration% "%reason%"'
+
+  reason: 'JevEngine: %category%'
+
+  duration:
+    # Off: every punishment uses default-tier. On: Jev picks a tier per message,
+    # following the policy written into the duration_tier question above.
+    enabled: false
+    question: duration_tier
+    min-confidence: 0.75
+
+    # Used when duration is off, and whenever Jev's pick is not confident enough.
+    default-tier: short
+
+    # Ordered weakest to strongest. %duration% becomes the value on the right.
+    tiers:
+      warn: '10m'
+      short: '1h'
+      medium: '1d'
+      long: '7d'
+      permanent: 'permanent'
+
+    # No category may exceed its cap, however confident Jev is. This is the
+    # backstop on the whole duration feature.
+    max-tier:
+      slur: long
+      hate_speech: long
+      targeted_harassment: medium
+      threat: permanent
+      sexual_harassment: long
+      minor_sexual_content: permanent
+      self_harm_encouragement: long
+      split_bypass: long
+      scam: long
+      advertising: long
+      spam: short
+      default: medium
+
+verbose:
+  # Print every decision to the server console.
+  console: false
+  # Show PASS verdicts too. Off means you only see FLAG, BLOCK, and PUNISH.
+  show-clean: true
+  # Include the full probability table rather than just the deciding number.
+  show-all-questions: true
+
+# The prefix and colours come from config.yml. These are the filter's own lines.
+messages:
+  # Used when low-latency is on, in place of the two lines below. The sender has
+  # already watched their message appear, so this has to say it did not go out.
+  # It carries its own icon and colour rather than the engine prefix. If this
+  # server's Adventure build does not know the sprite tag, the icon is dropped
+  # and the rest of the line is kept.
+  blocked-low-latency: '<sprite:"minecraft:gui":"icon/unseen_notification"> <dark_gray>|</dark_gray> <color:#ff3030>Your message was found to be violating our rules and was not sent.</color>'
+
+  blocked: 'That message was not sent.'
+  blocked-detail: '<gray>Swearing is fine here. That was something else.</gray>'
+  punished: 'That message was not sent, and it has been logged.'
+  failed-open: '<gray>Moderation is offline, so messages are going through unchecked.</gray>'
+  no-permission: 'You do not have permission to do that.'

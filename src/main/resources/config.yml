@@ -1,0 +1,48 @@
+# JevEngine
+#
+# General settings. This file holds the Jev credentials, the request budget
+# every module shares, which modules are on, and how the plugin looks when it
+# speaks.
+#
+# Each module keeps its own file next to this one. The chat filter is in
+# chatfilter.yml.
+#
+# Run /jevengine reload after editing.
+
+api:
+  # Leave blank to read TYPESAFE_API_KEY from the environment, which is the
+  # safer option if this file is in version control.
+  key: ''
+  model: 'jev-1.13.0'
+  endpoint: 'https://api.typesafe.ai/v1/systemone'
+
+  # How long to wait before giving up on a request. Chat feels laggy past about
+  # 2 seconds, and Jev normally answers well inside that.
+  timeout-ms: 2500
+
+  # Retries apply only to rate limits and overload responses (429, 529).
+  # Auth and validation errors are never retried.
+  max-retries: 2
+  retry-base-delay-ms: 200
+
+  # Requests in flight at once, across every module. Past this point they queue
+  # rather than opening more connections, so one busy module cannot starve the
+  # rest of the engine.
+  concurrency: 24
+
+# Which modules run. A module the engine knows about but this list does not
+# mention stays off, so updating the plugin never turns a feature on behind your
+# back. Switching one on here needs a server restart; /jevengine reload re-reads
+# settings for modules that are already running.
+modules:
+  chatfilter: true
+  triggerbot: true
+
+# Shared by every module, so the plugin speaks with one voice.
+messages:
+  prefix: '<sprite:"minecraft:blocks":"block/amethyst_cluster"> <gradient:#6d28d9:#c084fc:#f3e8ff>JevEngine</gradient> <dark_gray>|</dark_gray> '
+  # Used if this server's Adventure build does not understand the sprite tag.
+  prefix-fallback: '<gradient:#6d28d9:#c084fc:#f3e8ff>JevEngine</gradient> <dark_gray>|</dark_gray> '
+  body-color: '#f6e0ff'
+
+  no-permission: 'You do not have permission to do that.'

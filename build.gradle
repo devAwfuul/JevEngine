@@ -1,0 +1,101 @@
+plugins {
+    id 'java'
+    id 'xyz.jpenilla.run-paper' version '2.3.1'
+}
+
+group = 'dev.awfuul'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc-repo'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT'
+    // Bundled with the Paper server at runtime, so it is never shaded in.
+    compileOnly 'com.google.code.gson:gson:2.11.0'
+}
+
+def targetJavaVersion = 21
+
+java {
+    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+    sourceCompatibility = javaVersion
+    targetCompatibility = javaVersion
+    // Always requested, not just when the JVM running Gradle happens to be
+    // older than this. Without that condition, compiling with anything below
+    // Java 21 on PATH invokes `javac --release 21` on a compiler that predates
+    // 21 and fails with "release version 21 not supported" instead of Gradle
+    // finding a JDK 21 toolchain on its own. Unconditional means Gradle looks
+    // for (or, with the resolver plugin in settings.gradle, downloads) a
+    // matching toolchain regardless of what launched the build.
+    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(targetJavaVersion)
+}
+
+tasks.named('runServer') {
+    minecraftVersion('1.21.11')
+}
+
+processResources {
+    def props = [version: version]
+    inputs.properties props
+    filteringCharset 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}
+
+tasks.named('jar') {
+    archiveBaseName.set('JevEngine')
+}
+
+// --- Benchmark: compares JevEngine against a labeled CSV export -----------
+//
+// Test sources are compiled against the same paper-api/gson jars as main,
+// which are compileOnly there and so are not on the runtime classpath by
+// default for anything, test or main. This configuration exists purely to
+// give the benchmark's forked JVM those two jars at runtime, without ever
+// shading them into the plugin jar itself.
+configurations {
+    benchmarkRuntime
+}
+
+dependencies {
+    testCompileOnly 'io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT'
+    testCompileOnly 'com.google.code.gson:gson:2.11.0'
+    benchmarkRuntime 'io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT'
+    benchmarkRuntime 'com.google.code.gson:gson:2.11.0'
+}
+
+tasks.register('benchmark', JavaExec) {
+    group = 'verification'
+    description = 'Runs the chat filter against a labeled CSV export via the live Jev API. ' +
+            'Usage: ./gradlew benchmark -Pcsv=/path/to/export.csv [-Plimit=N] [-Pconcurrency=N]'
+    dependsOn 'compileTestJava'
+    mainClass.set('dev.awfuul.jevengine.bench.ChatFilterBenchmark')
+    classpath = sourceSets.test.output + sourceSets.main.output + configurations.benchmarkRuntime
+
+    def passthrough = ['csv', 'config', 'chatfilter-config', 'concurrency', 'timeout-ms',
+                        'max-retries', 'batch-size', 'limit', 'sample-every', 'message-column', 'out']
+    def forwarded = []
+    passthrough.each { name ->
+        if (project.hasProperty(name)) {
+            forwarded << "--${name}".toString()
+            forwarded << project.property(name).toString()
+        }
+    }
+    args = forwarded
+
+    standardInput = System.in
+    standardOutput = System.out
+    errorOutput = System.err
+}
