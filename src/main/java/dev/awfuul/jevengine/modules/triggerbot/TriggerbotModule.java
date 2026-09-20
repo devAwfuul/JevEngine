@@ -359,6 +359,10 @@ public final class TriggerbotModule implements JevModule, Listener {
         sample.put("duration_seconds", config.sampling().durationSeconds());
         sample.put("sampling_interval_ticks", config.sampling().intervalTicks());
         sample.put("ping_is_observed_per_frame_and_must_be_accounted_for", true);
+        sample.put("compact_schema", "Each frame has t=milliseconds, s=subject state, and "
+                + "o=nearby opponents. State fields are p=position, r=rotation, v=velocity, "
+                + "h=health, ping=milliseconds, g=on_ground, and n=name when present. "
+                + "Attack records use the same compact target state.");
         sample.put("summary", summary);
         sample.put("frames", frames);
         sample.put("attacks", attacks);
@@ -375,38 +379,42 @@ public final class TriggerbotModule implements JevModule, Listener {
 
     private Map<String, Object> frameMap(Frame frame) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("at_ms", frame.elapsedMs);
-        map.put("subject", stateMap(frame.subject));
-        map.put("opponents", frame.opponents.stream().map(TriggerbotModule::stateMap).toList());
+        map.put("t", frame.elapsedMs);
+        map.put("s", compactState(frame.subject, false));
+        map.put("o", frame.opponents.stream()
+                .map(opponent -> compactState(opponent, true)).toList());
         return map;
     }
 
     private Map<String, Object> attackMap(Attack attack) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("at_ms", attack.elapsedMs);
-        map.put("damage", attack.damage);
-        map.put("distance", attack.distance);
-        map.put("view_angle_to_target_degrees", attack.viewAngle);
-        map.put("attacker_ping_ms", attack.attackerPingMs);
-        map.put("target", stateMap(attack.target));
+        map.put("t", attack.elapsedMs);
+        map.put("damage", rounded(attack.damage, 2));
+        map.put("distance", rounded(attack.distance, 2));
+        map.put("angle", rounded(attack.viewAngle, 1));
+        map.put("ping", attack.attackerPingMs);
+        map.put("target", compactState(attack.target, true));
         return map;
     }
 
-    private static Map<String, Object> stateMap(PlayerState state) {
+    private static Map<String, Object> compactState(PlayerState state, boolean includeName) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("name", state.name);
-        map.put("uuid", state.uuid);
-        map.put("world", state.world);
-        map.put("position", Map.of("x", state.x, "y", state.y, "z", state.z));
-        map.put("rotation", Map.of("yaw", state.yaw, "pitch", state.pitch));
-        map.put("velocity", Map.of("x", state.velocityX, "y", state.velocityY,
-                "z", state.velocityZ));
-        map.put("health", state.health);
-        map.put("max_health", state.maxHealth);
-        map.put("ping_ms", state.pingMs);
-        map.put("on_ground", state.onGround);
-        map.put("sprinting", state.sprinting);
+        if (includeName) {
+            map.put("n", state.name);
+        }
+        map.put("p", List.of(rounded(state.x, 3), rounded(state.y, 3), rounded(state.z, 3)));
+        map.put("r", List.of(rounded(state.yaw, 2), rounded(state.pitch, 2)));
+        map.put("v", List.of(rounded(state.velocityX, 3), rounded(state.velocityY, 3),
+                rounded(state.velocityZ, 3)));
+        map.put("h", rounded(state.health, 2));
+        map.put("ping", state.pingMs);
+        map.put("g", state.onGround);
         return map;
+    }
+
+    private static double rounded(double value, int decimalPlaces) {
+        double scale = Math.pow(10.0D, decimalPlaces);
+        return Math.round(value * scale) / scale;
     }
 
     private static double average(List<Double> values) {

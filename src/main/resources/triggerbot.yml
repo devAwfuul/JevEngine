@@ -8,9 +8,9 @@ sampling:
   # Two ticks is ten samples per second on a normally running server.
   interval-ticks: 2
   opponent-radius: 12.0
-  max-opponents: 4
-  max-frames: 80
-  max-attacks: 128
+  max-opponents: 2
+  max-frames: 60
+  max-attacks: 64
   minimum-frames: 10
   max-concurrent-checks: 4
 

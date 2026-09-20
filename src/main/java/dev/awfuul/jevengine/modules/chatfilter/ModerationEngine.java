@@ -288,12 +288,13 @@ public final class ModerationEngine {
 
         if (split != null) {
             Map<String, Object> fragments = new LinkedHashMap<>();
+            fragments.put("owner", sender.name());
             fragments.put("fragments", split.fragments());
             fragments.put("joined", split.joined());
-            fragments.put("note", "These are the last few short messages from this player, oldest "
-                    + "first, with the message being judged last. `joined` is them run together "
-                    + "with nothing between. Short messages are normal in chat, and running them "
-                    + "together often produces something that resembles a word by accident.");
+            fragments.put("note", "Only messages sent by `owner` are in this object. They are "
+                    + "oldest first, with the message being judged last. `joined` is them run "
+                    + "together with nothing between. Never combine these fragments with messages "
+                    + "from another player.");
             state.put("player_recent_messages", fragments);
         }
 
@@ -314,7 +315,11 @@ public final class ModerationEngine {
         }
 
         int lines = config.chat().contextLines();
-        if (lines > 0 && recentChat != null && !recentChat.isEmpty()) {
+        // Global chat context is useful for ordinary moderation, but it must not
+        // be available to the split question. Otherwise Jev could see a short
+        // fragment from another player and mistake it for part of this player's
+        // account-bound sequence.
+        if (split == null && lines > 0 && recentChat != null && !recentChat.isEmpty()) {
             int from = Math.max(0, recentChat.size() - lines);
             state.put("recent_chat", List.copyOf(recentChat.subList(from, recentChat.size())));
         }
